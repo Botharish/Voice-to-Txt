@@ -18,7 +18,7 @@ export default function Home() {
       <VoiceToText />
 
       <footer className="page-footer">
-        <span>Every student voice matters.</span>
+        <span>Every student voice matters - Dev BY SaiHarish.</span>
         <span className="coming-soon">
           <span className="status-dot" />
           Tamil &amp; English voice input
