@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Tanglish AI — Student feedback collector",
+  title: "Student Feedback Collector",
   description:
     "Collect student feedback in Tamil or English by speaking or typing.",
 };
