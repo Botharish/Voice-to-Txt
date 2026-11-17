@@ -3,25 +3,11 @@
 import { useState } from "react";
 import VoiceInput from "@/components/voice-input";
 
-const languages = ["Tamil", "English"] as const;
-type Language = (typeof languages)[number];
-
 export default function VoiceToText() {
-  const [language, setLanguage] = useState<Language>("English");
   const [text, setText] = useState("");
-  const [isListening, setIsListening] = useState(false);
 
   return (
     <section className="translator" aria-label="Student feedback">
-      <div className="language-bar">
-        <LanguagePicker
-          label="Feedback language"
-          value={language}
-          onChange={setLanguage}
-          disabled={isListening}
-        />
-      </div>
-
       <div className="text-card input-card">
         <div className="card-heading">
           <div className="heading-label">
@@ -43,59 +29,24 @@ export default function VoiceToText() {
           className="source-input"
           value={text}
           placeholder="Tap the microphone to capture student feedback..."
-          aria-label={`Student feedback in ${language}`}
-          lang={language === "Tamil" ? "ta-IN" : "en-IN"}
+          aria-label="Student feedback transcript"
           readOnly
           maxLength={1000}
         />
         <div className="input-footer">
           <span className="voice-hint">
-            Tap the microphone, then speak. Your words appear live.
+            Speak in Tamil or English. Tamil appears in Tanglish.
           </span>
           <VoiceInput
-            language={language}
             text={text}
             onTextChange={setText}
-            onListeningChange={setIsListening}
           />
         </div>
       </div>
 
       <p className="translator-note">
-        Live speech recognition is provided by your browser.
+        Live transcription automatically detects spoken Tamil and English.
       </p>
     </section>
-  );
-}
-
-function LanguagePicker({
-  label,
-  value,
-  onChange,
-  disabled,
-}: {
-  label: string;
-  value: Language;
-  onChange: (language: Language) => void;
-  disabled: boolean;
-}) {
-  return (
-    <div className="language-picker">
-      <span className="language-label">{label}</span>
-      <div className="language-options" role="group" aria-label={label}>
-        {languages.map((language) => (
-          <button
-            className={`language-option${value === language ? " selected" : ""}`}
-            type="button"
-            key={language}
-            aria-pressed={value === language}
-            disabled={disabled}
-            onClick={() => onChange(language)}
-          >
-            {language}
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }

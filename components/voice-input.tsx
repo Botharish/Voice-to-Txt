@@ -1,66 +1,44 @@
 "use client";
 
+import { GoogleGenAI, Modality, type Session } from "@google/genai";
 import { useEffect, useRef, useState } from "react";
-
-type Language = "Tamil" | "English";
-
-interface RecognitionAlternativeLike {
-  transcript: string;
-}
-
-interface RecognitionResultLike {
-  isFinal: boolean;
-  [index: number]: RecognitionAlternativeLike;
-}
-
-interface RecognitionEventLike {
-  results: ArrayLike<RecognitionResultLike>;
-}
-
-interface RecognitionErrorLike {
-  error: string;
-}
-
-interface SpeechRecognitionLike {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  maxAlternatives: number;
-  onresult: ((event: RecognitionEventLike) => void) | null;
-  onerror: ((event: RecognitionErrorLike) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition?: new () => SpeechRecognitionLike;
-    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-  }
-}
+import { romanizeTamil } from "@/lib/tamil-transliteration";
 
 interface VoiceInputProps {
-  language: Language;
   text: string;
   onTextChange: (text: string) => void;
-  onListeningChange: (isListening: boolean) => void;
+}
+
+interface LiveTokenResponse {
+  token?: string;
+  model?: string;
+  error?: string;
 }
 
 const maxTranscriptLength = 1000;
+const targetSampleRate = 16_000;
 
 export default function VoiceInput({
-  language,
   text,
   onTextChange,
-  onListeningChange,
 }: VoiceInputProps) {
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const startingTextRef = useRef("");
+  const sessionRef = useRef<Session | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const closeTimerRef = useRef<number | null>(null);
+  const requestIdRef = useRef(0);
+  const listeningRef = useRef(false);
+  const finalTranscriptRef = useRef(text);
+  const interimTranscriptRef = useRef("");
   const [isListening, setIsListening] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    finalTranscriptRef.current = text;
+  }, [text]);
 
   useEffect(() => {
     if (!isListening) return;
@@ -72,125 +50,207 @@ export default function VoiceInput({
     return () => window.clearInterval(timer);
   }, [isListening]);
 
+  function updateTranscript() {
+    const transcript = `${finalTranscriptRef.current}${interimTranscriptRef.current}`;
+    onTextChange(romanizeTamil(transcript).slice(0, maxTranscriptLength));
+  }
+
+  function releaseMicrophone() {
+    processorRef.current?.disconnect();
+    sourceRef.current?.disconnect();
+    processorRef.current = null;
+    sourceRef.current = null;
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+
+    const audioContext = audioContextRef.current;
+    audioContextRef.current = null;
+    if (audioContext && audioContext.state !== "closed") {
+      void audioContext.close();
+    }
+  }
+
+  function stopListening(signalStreamEnd = true) {
+    requestIdRef.current += 1;
+    listeningRef.current = false;
+    setIsListening(false);
+    releaseMicrophone();
+
+    const session = sessionRef.current;
+    sessionRef.current = null;
+    if (session) {
+      if (signalStreamEnd) {
+        session.sendRealtimeInput({ audioStreamEnd: true });
+        closeTimerRef.current = window.setTimeout(() => {
+          session.close();
+          closeTimerRef.current = null;
+        }, 750);
+      } else {
+        session.close();
+      }
+    }
+
+    setStatus("Voice input stopped.");
+  }
+
   useEffect(() => {
     return () => {
-      const recognition = recognitionRef.current;
-      recognitionRef.current = null;
-      if (recognition) {
-        recognition.onresult = null;
-        recognition.onerror = null;
-        recognition.onend = null;
-        recognition.abort();
+      listeningRef.current = false;
+      releaseMicrophone();
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
       }
+      sessionRef.current?.close();
+      sessionRef.current = null;
     };
   }, []);
 
-  function beginRecognition(
-    Recognition: new () => SpeechRecognitionLike,
-    locale: string,
-    allowTamilFallback: boolean,
-  ) {
-    const recognition = new Recognition();
-    recognition.lang = locale;
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
-
-    recognition.onresult = (event) => {
-      let transcript = "";
-
-      for (let index = 0; index < event.results.length; index += 1) {
-        transcript += event.results[index][0]?.transcript ?? "";
-      }
-
-      onTextChange(
-        `${startingTextRef.current}${transcript}`.slice(0, maxTranscriptLength),
-      );
-    };
-
-    recognition.onerror = (event) => {
-      if (
-        event.error === "language-not-supported" &&
-        allowTamilFallback &&
-        language === "Tamil"
-      ) {
-        recognitionRef.current = null;
-        beginRecognition(Recognition, "ta", false);
-        return;
-      }
-
-      const messages: Record<string, string> = {
-        "not-allowed": "Allow microphone access in your browser to use voice input.",
-        "service-not-allowed": "Your browser’s live speech service is unavailable.",
-        "audio-capture": "No microphone was found. Check your audio input and try again.",
-        "no-speech": "No speech was detected. Tap the microphone to try again.",
-        network: "Live speech recognition needs a network connection.",
-        "language-not-supported":
-          "Tamil speech isn’t supported by this browser’s recognition service. Try Chrome with Tamil (India) enabled.",
-      };
-      recognitionRef.current = null;
-      setStatus(
-        messages[event.error] ??
-          (event.error === "aborted"
-            ? ""
-            : "Live speech input stopped unexpectedly. Please try again."),
-      );
-      setIsListening(false);
-      onListeningChange(false);
-    };
-
-    recognition.onend = () => {
-      if (recognitionRef.current !== recognition) return;
-      recognitionRef.current = null;
-      setIsListening(false);
-      onListeningChange(false);
-      setStatus((currentStatus) =>
-        currentStatus === "Listening…" || currentStatus === "Stopping…"
-          ? "Voice input stopped."
-          : currentStatus,
-      );
-    };
-
-    try {
-      recognitionRef.current = recognition;
-      setElapsedSeconds(0);
-      setStatus("Listening…");
-      setIsListening(true);
-      onListeningChange(true);
-      recognition.start();
-    } catch {
-      recognitionRef.current = null;
-      setIsListening(false);
-      onListeningChange(false);
-      setStatus("Couldn’t start live voice input. Check microphone access and try again.");
-    }
-  }
-
-  function startListening() {
-    const Recognition =
-      window.SpeechRecognition ?? window.webkitSpeechRecognition;
-
-    if (!Recognition) {
-      setStatus("Live speech input isn’t supported here. Try Chrome or Edge.");
+  async function startListening() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setStatus("Microphone access is not available in this browser.");
       return;
     }
 
-    startingTextRef.current = text.trim() ? `${text.trimEnd()} ` : "";
-    setElapsedSeconds(0);
-    setStatus("Listening…");
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+
+    const requestId = ++requestIdRef.current;
+    listeningRef.current = true;
     setIsListening(true);
-    onListeningChange(true);
+    interimTranscriptRef.current = "";
+    setElapsedSeconds(0);
+    setStatus("Requesting microphone access…");
 
-    beginRecognition(
-      Recognition,
-      language === "Tamil" ? "ta-IN" : "en-IN",
-      language === "Tamil",
-    );
-  }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (requestIdRef.current !== requestId) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      streamRef.current = stream;
 
-  function stopListening() {
-    setStatus("Stopping…");
-    recognitionRef.current?.stop();
+      setStatus("Connecting to live transcription…");
+      const response = await fetch("/api/live-token", { method: "POST" });
+      if (requestIdRef.current !== requestId) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      const tokenData = (await response.json()) as LiveTokenResponse;
+      if (!response.ok || !tokenData.token || !tokenData.model) {
+        throw new Error(
+          tokenData.error ?? "Could not start voice transcription. Please try again.",
+        );
+      }
+
+      const ai = new GoogleGenAI({
+        apiKey: tokenData.token,
+        httpOptions: { apiVersion: "v1beta" },
+      });
+      const session = await ai.live.connect({
+        model: tokenData.model,
+        config: {
+          responseModalities: [Modality.TEXT],
+          inputAudioTranscription: { languageCodes: [] },
+        },
+        callbacks: {
+          onmessage: (message) => {
+            const content = message.serverContent;
+            if (content?.interimInputTranscription?.text) {
+              interimTranscriptRef.current =
+                content.interimInputTranscription.text;
+              updateTranscript();
+            }
+
+            if (content?.inputTranscription?.text) {
+              const nextText = content.inputTranscription.text;
+              const currentText = finalTranscriptRef.current;
+              const separator =
+                currentText && !/\s$/u.test(currentText) ? " " : "";
+              finalTranscriptRef.current = `${currentText}${separator}${nextText}`;
+              interimTranscriptRef.current = "";
+              updateTranscript();
+            }
+          },
+          onerror: () => {
+            if (listeningRef.current) {
+              stopListening(false);
+              setStatus("Live transcription disconnected. Tap the microphone to try again.");
+            }
+          },
+          onclose: () => {
+            if (listeningRef.current) {
+              requestIdRef.current += 1;
+              listeningRef.current = false;
+              releaseMicrophone();
+              sessionRef.current = null;
+              setIsListening(false);
+              setStatus("Live transcription disconnected. Tap the microphone to try again.");
+            }
+          },
+        },
+      });
+
+      if (requestIdRef.current !== requestId) {
+        session.close();
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      sessionRef.current = session;
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;
+      await audioContext.resume();
+
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      const mutedOutput = audioContext.createGain();
+      mutedOutput.gain.value = 0;
+      sourceRef.current = source;
+      processorRef.current = processor;
+
+      processor.onaudioprocess = (event) => {
+        if (!listeningRef.current || sessionRef.current !== session) return;
+
+        const samples = downsample(
+          event.inputBuffer.getChannelData(0),
+          audioContext.sampleRate,
+          targetSampleRate,
+        );
+        session.sendRealtimeInput({
+          audio: {
+            data: toBase64Pcm(samples),
+            mimeType: `audio/pcm;rate=${targetSampleRate}`,
+          },
+        });
+      };
+
+      source.connect(processor);
+      processor.connect(mutedOutput);
+      mutedOutput.connect(audioContext.destination);
+
+      setStatus("Listening for Tamil or English…");
+    } catch (error) {
+      if (requestIdRef.current !== requestId) return;
+      releaseMicrophone();
+      sessionRef.current?.close();
+      sessionRef.current = null;
+      listeningRef.current = false;
+      setIsListening(false);
+
+      const errorName =
+        error instanceof DOMException ? error.name : "";
+      setStatus(
+        errorName === "NotAllowedError"
+          ? "Allow microphone access in your browser to use voice input."
+          : errorName === "NotFoundError"
+            ? "No microphone was found. Check your audio input and try again."
+            : error instanceof Error
+              ? error.message
+              : "Could not start voice input. Please try again.",
+      );
+    }
   }
 
   const formattedTime = `${Math.floor(elapsedSeconds / 60)
@@ -202,10 +262,8 @@ export default function VoiceInput({
       <button
         className={`voice-button${isListening ? " is-listening" : ""}`}
         type="button"
-        onClick={isListening ? stopListening : startListening}
-        aria-label={
-          isListening ? "Stop live voice input" : `Start speaking in ${language}`
-        }
+        onClick={() => (isListening ? stopListening() : startListening())}
+        aria-label={isListening ? "Stop live voice input" : "Start speaking"}
         aria-pressed={isListening}
       >
         {isListening ? (
@@ -231,8 +289,7 @@ export default function VoiceInput({
         )}
       </button>
       <span className="voice-status" aria-live="polite">
-        {status ||
-          (isListening ? `Listening · ${formattedTime}` : "Tap to speak")}
+        {status || (isListening ? `Listening · ${formattedTime}` : "Tap to speak")}
       </span>
       {isListening && (
         <span className="voice-wave" aria-hidden="true">
@@ -245,4 +302,40 @@ export default function VoiceInput({
       )}
     </div>
   );
+}
+
+function downsample(
+  input: Float32Array,
+  inputSampleRate: number,
+  outputSampleRate: number,
+): Int16Array {
+  const outputLength = Math.floor(
+    (input.length * outputSampleRate) / inputSampleRate,
+  );
+  const output = new Int16Array(outputLength);
+  const ratio = inputSampleRate / outputSampleRate;
+
+  for (let index = 0; index < outputLength; index += 1) {
+    const start = Math.floor(index * ratio);
+    const end = Math.min(Math.floor((index + 1) * ratio), input.length);
+    let total = 0;
+    for (let sample = start; sample < end; sample += 1) {
+      total += input[sample];
+    }
+
+    const average = total / Math.max(end - start, 1);
+    const clipped = Math.max(-1, Math.min(1, average));
+    output[index] = clipped < 0 ? clipped * 0x8000 : clipped * 0x7fff;
+  }
+
+  return output;
+}
+
+function toBase64Pcm(samples: Int16Array): string {
+  const bytes = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+  return btoa(binary);
 }

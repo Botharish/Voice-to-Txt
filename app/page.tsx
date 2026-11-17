@@ -11,7 +11,8 @@ export default function Home() {
         </span>
         <h1 id="page-title">Student feedback, captured.</h1>
         <p className="hero-subtitle">
-          Speak your feedback in Tamil or English and see the words appear live.
+          Speak naturally in Tamil or English. Your words appear live, with Tamil
+          written in Tanglish.
         </p>
       </section>
 
@@ -21,7 +22,7 @@ export default function Home() {
         <span>Every student voice matters - Dev BY SaiHarish.</span>
         <span className="coming-soon">
           <span className="status-dot" />
-          Tamil &amp; English voice input
+          Automatic Tamil &amp; English detection
         </span>
       </footer>
     </main>
