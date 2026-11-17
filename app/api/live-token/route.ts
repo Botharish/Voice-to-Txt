@@ -30,7 +30,6 @@ export async function POST() {
             inputAudioTranscription: { languageCodes: [] },
           },
         },
-        lockAdditionalFields: ["model", "config"],
       },
     });
 

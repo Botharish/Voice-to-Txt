@@ -146,7 +146,7 @@ export default function VoiceInput({
 
       const ai = new GoogleGenAI({
         apiKey: tokenData.token,
-        httpOptions: { apiVersion: "v1beta" },
+        httpOptions: { apiVersion: "v1alpha" },
       });
       const session = await ai.live.connect({
         model: tokenData.model,
