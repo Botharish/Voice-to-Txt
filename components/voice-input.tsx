@@ -17,6 +17,8 @@ interface LiveTokenResponse {
 
 const maxTranscriptLength = 1000;
 const targetSampleRate = 16_000;
+const identificationTimeoutMs = 8_000;
+const notificationDurationMs = 3_500;
 
 export default function VoiceInput({
   text,
@@ -28,6 +30,12 @@ export default function VoiceInput({
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const closeTimerRef = useRef<number | null>(null);
+  const identificationTimerRef = useRef<number | null>(null);
+  const notificationTimerRef = useRef<number | null>(null);
+  const notificationRemovalTimerRef = useRef<number | null>(null);
+  const notificationIdRef = useRef(0);
+  const lastNotificationTimeRef = useRef(0);
+  const receivedTranscriptionRef = useRef(false);
   const requestIdRef = useRef(0);
   const listeningRef = useRef(false);
   const finalTranscriptRef = useRef(text);
@@ -35,6 +43,11 @@ export default function VoiceInput({
   const [isListening, setIsListening] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [status, setStatus] = useState("");
+  const [notification, setNotification] = useState<{
+    id: number;
+    message: string;
+  } | null>(null);
+  const [isNotificationVisible, setIsNotificationVisible] = useState(false);
 
   useEffect(() => {
     if (!isListening) return;
@@ -54,10 +67,48 @@ export default function VoiceInput({
     }
   }
 
+  function showIdentificationNotification() {
+    const now = Date.now();
+    if (now - lastNotificationTimeRef.current < notificationDurationMs) {
+      return;
+    }
+
+    lastNotificationTimeRef.current = now;
+    setNotification({
+      id: ++notificationIdRef.current,
+      message: "Couldn't identify what you're saying. Please speak in Tamil or English.",
+    });
+    setIsNotificationVisible(true);
+
+    if (notificationTimerRef.current !== null) {
+      window.clearTimeout(notificationTimerRef.current);
+    }
+    if (notificationRemovalTimerRef.current !== null) {
+      window.clearTimeout(notificationRemovalTimerRef.current);
+    }
+
+    notificationTimerRef.current = window.setTimeout(() => {
+      setIsNotificationVisible(false);
+      notificationRemovalTimerRef.current = window.setTimeout(() => {
+        setNotification(null);
+        notificationRemovalTimerRef.current = null;
+      }, 300);
+      notificationTimerRef.current = null;
+    }, notificationDurationMs);
+  }
+
+  function clearIdentificationTimer() {
+    if (identificationTimerRef.current !== null) {
+      window.clearTimeout(identificationTimerRef.current);
+      identificationTimerRef.current = null;
+    }
+  }
+
   function rejectUnsupportedLanguage() {
     interimTranscriptRef.current = "";
     updateTranscript();
-    setStatus("Only Tamil and English are supported. Please speak in one of these languages.");
+    setStatus("Listening for Tamil or English…");
+    showIdentificationNotification();
   }
 
   function releaseMicrophone() {
@@ -79,6 +130,7 @@ export default function VoiceInput({
     requestIdRef.current += 1;
     listeningRef.current = false;
     setIsListening(false);
+    clearIdentificationTimer();
     releaseMicrophone();
 
     const session = sessionRef.current;
@@ -105,6 +157,13 @@ export default function VoiceInput({
       if (closeTimerRef.current !== null) {
         window.clearTimeout(closeTimerRef.current);
       }
+      clearIdentificationTimer();
+      if (notificationTimerRef.current !== null) {
+        window.clearTimeout(notificationTimerRef.current);
+      }
+      if (notificationRemovalTimerRef.current !== null) {
+        window.clearTimeout(notificationRemovalTimerRef.current);
+      }
       sessionRef.current?.close();
       sessionRef.current = null;
     };
@@ -124,6 +183,7 @@ export default function VoiceInput({
     const requestId = ++requestIdRef.current;
     listeningRef.current = true;
     setIsListening(true);
+    receivedTranscriptionRef.current = false;
     finalTranscriptRef.current = text;
     interimTranscriptRef.current = "";
     setElapsedSeconds(0);
@@ -165,6 +225,8 @@ export default function VoiceInput({
             const content = message.serverContent;
             const interim = content?.interimInputTranscription;
             if (typeof interim?.text === "string" && interim.text) {
+              receivedTranscriptionRef.current = true;
+              clearIdentificationTimer();
               if (
                 toTanglishTranscript(interim.text, interim.languageCode) ===
                 null
@@ -182,6 +244,8 @@ export default function VoiceInput({
               typeof transcription?.text === "string" &&
               transcription.text
             ) {
+              receivedTranscriptionRef.current = true;
+              clearIdentificationTimer();
               const nextText = transcription.text;
               if (
                 toTanglishTranscript(nextText, transcription.languageCode) ===
@@ -210,6 +274,7 @@ export default function VoiceInput({
             if (listeningRef.current) {
               requestIdRef.current += 1;
               listeningRef.current = false;
+              clearIdentificationTimer();
               releaseMicrophone();
               sessionRef.current = null;
               setIsListening(false);
@@ -258,8 +323,16 @@ export default function VoiceInput({
       mutedOutput.connect(audioContext.destination);
 
       setStatus("Listening for Tamil or English…");
+      clearIdentificationTimer();
+      identificationTimerRef.current = window.setTimeout(() => {
+        identificationTimerRef.current = null;
+        if (listeningRef.current && !receivedTranscriptionRef.current) {
+          showIdentificationNotification();
+        }
+      }, identificationTimeoutMs);
     } catch (error) {
       if (requestIdRef.current !== requestId) return;
+      clearIdentificationTimer();
       releaseMicrophone();
       sessionRef.current?.close();
       sessionRef.current = null;
@@ -285,49 +358,64 @@ export default function VoiceInput({
     .padStart(2, "0")}:${(elapsedSeconds % 60).toString().padStart(2, "0")}`;
 
   return (
-    <div className="voice-input">
-      <button
-        className={`voice-button${isListening ? " is-listening" : ""}`}
-        type="button"
-        onClick={() => (isListening ? stopListening() : startListening())}
-        aria-label={isListening ? "Stop live voice input" : "Start speaking"}
-        aria-pressed={isListening}
-      >
-        {isListening ? (
-          <span className="voice-stop-icon" aria-hidden="true" />
-        ) : (
-          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-            <rect
-              x="7"
-              y="2.5"
-              width="6"
-              height="10"
-              rx="3"
-              stroke="currentColor"
-              strokeWidth="1.5"
-            />
-            <path
-              d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5m-3 0h6"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-            />
-          </svg>
-        )}
-      </button>
-      <span className="voice-status" aria-live="polite">
-        {status || (isListening ? `Listening · ${formattedTime}` : "Tap to speak")}
-      </span>
-      {isListening && (
-        <span className="voice-wave" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-          <i />
-          <i />
+    <>
+      <div className="voice-input">
+        <button
+          className={`voice-button${isListening ? " is-listening" : ""}`}
+          type="button"
+          onClick={() => (isListening ? stopListening() : startListening())}
+          aria-label={isListening ? "Stop live voice input" : "Start speaking"}
+          aria-pressed={isListening}
+        >
+          {isListening ? (
+            <span className="voice-stop-icon" aria-hidden="true" />
+          ) : (
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <rect
+                x="7"
+                y="2.5"
+                width="6"
+                height="10"
+                rx="3"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              />
+              <path
+                d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5m-3 0h6"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+          )}
+        </button>
+        <span className="voice-status" aria-live="polite">
+          {status || (isListening ? `Listening · ${formattedTime}` : "Tap to speak")}
         </span>
+        {isListening && (
+          <span className="voice-wave" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+        )}
+      </div>
+      {notification && (
+        <div
+          key={notification.id}
+          className={`voice-notification${isNotificationVisible ? " is-visible" : " is-hiding"}`}
+          role="alert"
+          aria-live="assertive"
+        >
+          <span className="voice-notification-icon" aria-hidden="true">
+            !
+          </span>
+          <span>{notification.message}</span>
+        </div>
       )}
-    </div>
+    </>
   );
 }
 

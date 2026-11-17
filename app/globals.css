@@ -418,9 +418,96 @@ button {
   animation-delay: 360ms;
 }
 
+.voice-notification {
+  position: fixed;
+  z-index: 1000;
+  top: max(16px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+  display: flex;
+  width: min(420px, calc(100vw - 32px));
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #f1d4d0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgb(34 38 48 / 12%);
+  color: #424650;
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(14px);
+  transition:
+    opacity 240ms ease,
+    transform 240ms ease;
+}
+
+.voice-notification.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+  animation: voice-notification-in 240ms ease-out both;
+}
+
+.voice-notification.is-hiding {
+  animation: voice-notification-out 240ms ease-in both;
+}
+
+.voice-notification-icon {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+  place-items: center;
+  border-radius: 50%;
+  background: #fff1ef;
+  color: #bd4d42;
+  font-size: 14px;
+  font-weight: 700;
+}
+
 @keyframes voice-wave {
   to {
     height: 14px;
+  }
+}
+
+@keyframes voice-notification-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes voice-notification-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-notification {
+    animation: none;
+    transition: none;
+  }
+
+  .voice-notification.is-visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  .voice-notification.is-hiding {
+    opacity: 0;
+    transform: translateY(-14px);
   }
 }
 
