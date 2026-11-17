@@ -2,7 +2,7 @@
 
 import { GoogleGenAI, Modality, type Session } from "@google/genai";
 import { useEffect, useRef, useState } from "react";
-import { romanizeTamil } from "@/lib/tamil-transliteration";
+import { toTanglishTranscript } from "@/lib/tamil-transliteration";
 
 interface VoiceInputProps {
   text: string;
@@ -48,7 +48,16 @@ export default function VoiceInput({
 
   function updateTranscript() {
     const transcript = `${finalTranscriptRef.current}${interimTranscriptRef.current}`;
-    onTextChange(romanizeTamil(transcript).slice(0, maxTranscriptLength));
+    const tanglish = toTanglishTranscript(transcript);
+    if (tanglish !== null) {
+      onTextChange(tanglish.slice(0, maxTranscriptLength));
+    }
+  }
+
+  function rejectUnsupportedLanguage() {
+    interimTranscriptRef.current = "";
+    updateTranscript();
+    setStatus("Only Tamil and English are supported. Please speak in one of these languages.");
   }
 
   function releaseMicrophone() {
@@ -149,24 +158,45 @@ export default function VoiceInput({
         model: tokenData.model,
         config: {
           responseModalities: [Modality.TEXT],
-          inputAudioTranscription: { languageCodes: [] },
+          inputAudioTranscription: { languageCodes: ["ta-IN", "en-IN"] },
         },
         callbacks: {
           onmessage: (message) => {
             const content = message.serverContent;
-            if (content?.interimInputTranscription?.text) {
-              interimTranscriptRef.current =
-                content.interimInputTranscription.text;
-              updateTranscript();
+            const interim = content?.interimInputTranscription;
+            if (typeof interim?.text === "string" && interim.text) {
+              if (
+                toTanglishTranscript(interim.text, interim.languageCode) ===
+                null
+              ) {
+                rejectUnsupportedLanguage();
+              } else {
+                interimTranscriptRef.current = interim.text;
+                setStatus("Listening for Tamil or English…");
+                updateTranscript();
+              }
             }
 
-            if (content?.inputTranscription?.text) {
-              const nextText = content.inputTranscription.text;
+            const transcription = content?.inputTranscription;
+            if (
+              typeof transcription?.text === "string" &&
+              transcription.text
+            ) {
+              const nextText = transcription.text;
+              if (
+                toTanglishTranscript(nextText, transcription.languageCode) ===
+                null
+              ) {
+                rejectUnsupportedLanguage();
+                return;
+              }
+
               const currentText = finalTranscriptRef.current;
               const separator =
                 currentText && !/\s$/u.test(currentText) ? " " : "";
               finalTranscriptRef.current = `${currentText}${separator}${nextText}`;
               interimTranscriptRef.current = "";
+              setStatus("Listening for Tamil or English…");
               updateTranscript();
             }
           },

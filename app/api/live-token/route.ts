@@ -32,7 +32,7 @@ export async function POST() {
           model,
           config: {
             responseModalities: [Modality.TEXT],
-            inputAudioTranscription: { languageCodes: [] },
+            inputAudioTranscription: { languageCodes: ["ta-IN", "en-IN"] },
           },
         },
       },
