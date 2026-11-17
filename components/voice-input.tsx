@@ -37,10 +37,6 @@ export default function VoiceInput({
   const [status, setStatus] = useState("");
 
   useEffect(() => {
-    finalTranscriptRef.current = text;
-  }, [text]);
-
-  useEffect(() => {
     if (!isListening) return;
 
     const timer = window.setInterval(
@@ -119,6 +115,7 @@ export default function VoiceInput({
     const requestId = ++requestIdRef.current;
     listeningRef.current = true;
     setIsListening(true);
+    finalTranscriptRef.current = text;
     interimTranscriptRef.current = "";
     setElapsedSeconds(0);
     setStatus("Requesting microphone access…");
