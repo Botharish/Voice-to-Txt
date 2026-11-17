@@ -7,8 +7,13 @@ export async function POST() {
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
+    const message =
+      process.env.VERCEL === "1"
+        ? "Add GEMINI_API_KEY in Vercel Project Settings → Environment Variables for Production, then redeploy."
+        : "Add GEMINI_API_KEY to .env.local and restart the development server.";
+
     return NextResponse.json(
-      { error: "Voice transcription is not configured. Add GEMINI_API_KEY on the server." },
+      { error: message },
       { status: 503 },
     );
   }
