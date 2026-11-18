@@ -217,7 +217,7 @@ export default function VoiceInput({
         model: tokenData.model,
         config: {
           responseModalities: [Modality.TEXT],
-          inputAudioTranscription: { languageCodes: ["ta-IN", "en-IN"] },
+          inputAudioTranscription: {},
         },
         callbacks: {
           onmessage: (message) => {

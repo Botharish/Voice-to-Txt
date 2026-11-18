@@ -35,7 +35,7 @@ export default function VoiceToText() {
         />
         <div className="input-footer">
           <span className="voice-hint">
-            Speak in Tamil or English. Tamil appears in Tamil script.
+            Speak in Tamil or English. Each language appears in its own script.
           </span>
           <VoiceInput
             text={text}
