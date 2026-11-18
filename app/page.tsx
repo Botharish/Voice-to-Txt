@@ -12,7 +12,7 @@ export default function Home() {
         <h1 id="page-title">Student feedback, captured.</h1>
         <p className="hero-subtitle">
           Speak naturally in Tamil or English. Your words appear live, with Tamil
-          written in Tanglish.
+          written in Tamil script.
         </p>
       </section>
 

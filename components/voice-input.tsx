@@ -2,7 +2,7 @@
 
 import { GoogleGenAI, Modality, type Session } from "@google/genai";
 import { useEffect, useRef, useState } from "react";
-import { toTanglishTranscript } from "@/lib/tamil-transliteration";
+import { isSupportedTranscript } from "@/lib/transcript-validation";
 
 interface VoiceInputProps {
   text: string;
@@ -61,9 +61,8 @@ export default function VoiceInput({
 
   function updateTranscript() {
     const transcript = `${finalTranscriptRef.current}${interimTranscriptRef.current}`;
-    const tanglish = toTanglishTranscript(transcript);
-    if (tanglish !== null) {
-      onTextChange(tanglish.slice(0, maxTranscriptLength));
+    if (isSupportedTranscript(transcript)) {
+      onTextChange(transcript.slice(0, maxTranscriptLength));
     }
   }
 
@@ -228,8 +227,7 @@ export default function VoiceInput({
               receivedTranscriptionRef.current = true;
               clearIdentificationTimer();
               if (
-                toTanglishTranscript(interim.text, interim.languageCode) ===
-                null
+                !isSupportedTranscript(interim.text, interim.languageCode)
               ) {
                 rejectUnsupportedLanguage();
               } else {
@@ -248,8 +246,7 @@ export default function VoiceInput({
               clearIdentificationTimer();
               const nextText = transcription.text;
               if (
-                toTanglishTranscript(nextText, transcription.languageCode) ===
-                null
+                !isSupportedTranscript(nextText, transcription.languageCode)
               ) {
                 rejectUnsupportedLanguage();
                 return;
